@@ -20,6 +20,7 @@ package me.yic.xconomy.info;
 
 import me.yic.xconomy.XConomy;
 import me.yic.xconomy.adapter.comp.CConfig;
+import me.yic.xconomy.utils.DuplicateUsernameAction;
 import me.yic.xconomy.utils.UUIDMode;
 
 import java.math.BigDecimal;
@@ -36,6 +37,7 @@ public class DefaultConfig {
         setnonplayeraccount();
         setformatbalance();
         setpaytips();
+        setDuplicateUsernameAction();
     }
     public boolean ISOLDCONFIG = false;
 
@@ -56,6 +58,7 @@ public class DefaultConfig {
     public boolean TRANSACTION_RECORD = config.getBoolean("Settings.transaction-record");
     public boolean PAY_TIPS = false;
     public boolean USERNAME_IGNORE_CASE = config.getBoolean("Settings.username-ignore-case");
+    public DuplicateUsernameAction DUPLICATE_USERNAME_ACTION = DuplicateUsernameAction.KICK;
 
     public boolean NON_PLAYER_ACCOUNT = config.getBoolean("non-player-account.enable");
     public List<String> NON_PLAYER_ACCOUNT_SUBSTRING = null;
@@ -160,6 +163,21 @@ public class DefaultConfig {
     private void setpaytips() {
         if (TRANSACTION_RECORD) {
             PAY_TIPS = config.getBoolean("Settings.offline-pay-transfer-tips");
+        }
+    }
+
+    private void setDuplicateUsernameAction() {
+        if (!config.contains("Settings.duplicate-username-action")) {
+            return;
+        }
+        String action = config.getString("Settings.duplicate-username-action");
+        if (action == null) {
+            return;
+        }
+        if (action.equalsIgnoreCase("REPLACE")) {
+            DUPLICATE_USERNAME_ACTION = DuplicateUsernameAction.REPLACE;
+        } else if (action.equalsIgnoreCase("MOJANG")) {
+            DUPLICATE_USERNAME_ACTION = DuplicateUsernameAction.MOJANG;
         }
     }
 }

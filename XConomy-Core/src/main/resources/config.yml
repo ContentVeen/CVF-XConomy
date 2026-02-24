@@ -54,6 +54,17 @@ Settings:
   offline-pay-transfer-tips: false
   #Ignore the case of player names
   username-ignore-case: false
+  #Action to take when a duplicate username conflict is detected (same name, different UUID in the database).
+  #This can happen when a player renames their Minecraft account without logging in first,
+  #and a second player then claims that old name.
+  #KICK:    Log an error in the console and kick the connecting player (default).
+  #REPLACE: Remove the name from the old UUID entry and allow the new player to proceed.
+  #         The old UUID keeps its balance but its name becomes a placeholder until the
+  #         original owner logs in again and their name is refreshed automatically.
+  #MOJANG:  Like REPLACE, but also queries the Mojang API to look up the old UUID's
+  #         current username and stores that directly, so both accounts end up with the
+  #         correct name straight away. Falls back to REPLACE when the API is unreachable.
+  duplicate-username-action: KICK
 
 
 #It can solve the problem that some plugins need to create non-player accounts, such as Factions

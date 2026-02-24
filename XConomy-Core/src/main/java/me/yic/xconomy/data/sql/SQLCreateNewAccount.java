@@ -20,6 +20,7 @@ package me.yic.xconomy.data.sql;
 
 import me.yic.xconomy.XConomy;
 import me.yic.xconomy.XConomyLoad;
+import me.yic.xconomy.adapter.comp.CConfig;
 import me.yic.xconomy.adapter.comp.CPlayer;
 import me.yic.xconomy.data.DataCon;
 import me.yic.xconomy.data.DataFormat;
@@ -29,9 +30,11 @@ import me.yic.xconomy.data.caches.Cache;
 import me.yic.xconomy.data.syncdata.PlayerData;
 import me.yic.xconomy.data.syncdata.SyncUUID;
 import me.yic.xconomy.depend.NonPlayerPlugin;
+import me.yic.xconomy.utils.DuplicateUsernameAction;
 import me.yic.xconomy.utils.UUIDMode;
 
 import java.math.BigDecimal;
+import java.net.URL;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -142,11 +145,22 @@ public class SQLCreateNewAccount extends SQL {
             if (rs.next()) {
                 String uid = rs.getString(1);
                 if (!uuid.toString().equals(uid)) {
-                    doubledata = true;
                     if (!XConomyLoad.Config.UUIDMODE.equals(UUIDMode.SEMIONLINE)) {
-                        kickplayer(player, 0, uid);
+                        DuplicateUsernameAction action = XConomyLoad.Config.DUPLICATE_USERNAME_ACTION;
+                        if (action == DuplicateUsernameAction.REPLACE) {
+                            resolveConflictReplace(uid, name, connection);
+                            // doubledata stays false → selectUser() will run normally
+                        } else if (action == DuplicateUsernameAction.MOJANG) {
+                            resolveConflictMojang(uid, name, connection);
+                            // doubledata stays false → selectUser() will run normally
+                        } else {
+                            // KICK (default)
+                            doubledata = true;
+                            kickplayer(player, 0, uid);
+                        }
                     } else {
                         createDUUIDLink(uuid.toString(), uid, connection);
+                        doubledata = true;
                     }
                 }
             }
@@ -157,6 +171,74 @@ public class SQLCreateNewAccount extends SQL {
             e.printStackTrace();
         }
         return doubledata;
+    }
+
+    /**
+     * Resolves a duplicate-username conflict by renaming the old UUID entry to a
+     * placeholder (the UUID string itself) so the connecting player can proceed.
+     *
+     * @param oldUid     UUID string of the existing conflicting database entry
+     * @param oldName    the shared username that caused the conflict
+     * @param connection active database connection
+     */
+    private static void resolveConflictReplace(String oldUid, String oldName, Connection connection) {
+        // Use the UUID (without dashes) as a unique placeholder name for the old entry.
+        // The balance is preserved. When the original owner next logs in, their name
+        // will be updated automatically by selectUser().
+        String placeholder = oldUid.replace("-", "");
+        updateUser(oldUid, placeholder, connection);
+        syncOnlineUUID(oldName, placeholder, UUID.fromString(oldUid));
+        XConomy.getInstance().logger(null, 0,
+                "[XConomy] Duplicate username conflict resolved (REPLACE): "
+                        + oldName + " | Old UUID: " + oldUid
+                        + " | Placeholder name set to: " + placeholder);
+    }
+
+    /**
+     * Resolves a duplicate-username conflict by querying the Mojang API for the old
+     * UUID's current username and updating the database record accordingly.
+     * Falls back to {@link #resolveConflictReplace} when the API is unreachable.
+     *
+     * @param oldUid     UUID string of the existing conflicting database entry
+     * @param oldName    the shared username that caused the conflict
+     * @param connection active database connection
+     */
+    private static void resolveConflictMojang(String oldUid, String oldName, Connection connection) {
+        String newNameForOld = fetchCurrentUsernameFromMojang(oldUid);
+        if (newNameForOld != null && !newNameForOld.isEmpty()) {
+            updateUser(oldUid, newNameForOld, connection);
+            syncOnlineUUID(oldName, newNameForOld, UUID.fromString(oldUid));
+            XConomy.getInstance().logger(null, 0,
+                    "[XConomy] Duplicate username conflict resolved (MOJANG): "
+                            + oldName + " | Old UUID: " + oldUid
+                            + " | Updated to current Mojang name: " + newNameForOld);
+        } else {
+            // Mojang API unavailable – fall back to REPLACE behaviour
+            XConomy.getInstance().logger(null, 1,
+                    "[XConomy] Mojang API lookup failed for UUID: " + oldUid
+                            + " | Falling back to REPLACE behaviour");
+            resolveConflictReplace(oldUid, oldName, connection);
+        }
+    }
+
+    /**
+     * Queries the Mojang session-server API for the current username of the given
+     * UUID. Returns {@code null} when the request fails or the profile is not found.
+     *
+     * @param uid UUID string (with dashes) of the player to look up
+     * @return current Mojang username, or {@code null} on failure
+     */
+    private static String fetchCurrentUsernameFromMojang(String uid) {
+        try {
+            String uuidNoDashes = uid.replace("-", "");
+            URL url = new URL("https://sessionserver.mojang.com/session/minecraft/profile/" + uuidNoDashes);
+            CConfig profile = new CConfig(url);
+            return profile.getString("name");
+        } catch (Exception e) {
+            XConomy.getInstance().logger(null, 1,
+                    "[XConomy] Failed to fetch Mojang profile for UUID: " + uid);
+            return null;
+        }
     }
 
 
